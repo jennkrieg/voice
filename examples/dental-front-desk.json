@@ -1,0 +1,52 @@
+{
+  "name": "Front desk",
+  "config": {
+    "businessName": "Bright Smile Dental",
+    "agentName": "Ava",
+    "timezone": "America/New_York",
+    "instructions": "You answer calls for a family dental practice and book appointments.\nInbound: find out what they need (cleaning, new patient exam, toothache, cosmetic), answer questions, and book.\nOutbound: these are new leads from the website. Confirm it's a good time, ask what prompted them to reach out, and offer to book a new patient exam.\nDental pain or swelling: offer the earliest slot today or tomorrow, and if they describe severe swelling or trouble breathing tell them to go to urgent care or call 911.\nTransfer to front_desk if they ask for a person, have a billing question, or are upset.\nOffer to email the new patient guide to anyone booking a first visit.",
+    "knowledge": "Address: 120 Main Street, Suite 4, Springfield. Free parking behind the building.\nHours: Mon-Thu 8am-5pm, Fri 8am-2pm.\nNew patient exam with X-rays and cleaning: $149 without insurance, usually covered by insurance.\nWe accept Delta Dental, Cigna, Aetna, MetLife, and Guardian. We do not accept Medicaid.\nTeeth whitening: $399. Payment plans available through CareCredit.",
+    "transferTargets": [{ "key": "front_desk", "number": "+15555550123", "description": "Human receptionist: billing, insurance details, upset callers, anyone asking for a person" }],
+    "calendar": {
+      "eventTitle": "New patient visit: {name}",
+      "durationMinutes": 60,
+      "bufferMinutes": 15,
+      "minNoticeMinutes": 120,
+      "businessHours": {
+        "mon": [["08:00", "12:00"], ["13:00", "17:00"]],
+        "tue": [["08:00", "12:00"], ["13:00", "17:00"]],
+        "wed": [["08:00", "12:00"], ["13:00", "17:00"]],
+        "thu": [["08:00", "12:00"], ["13:00", "17:00"]],
+        "fri": [["08:00", "14:00"]]
+      }
+    },
+    "crm": {
+      "updatableFields": {
+        "first_name": "First name",
+        "last_name": "Last name",
+        "email": "Email address",
+        "insurance_provider": "Their dental insurance company",
+        "reason_for_visit": "Why they want an appointment, in a few words"
+      },
+      "outcomeField": "ai_call_outcome",
+      "summaryField": "ai_call_summary"
+    },
+    "followUp": {
+      "assets": [
+        {
+          "key": "new_patient_guide",
+          "title": "New Patient Guide (PDF)",
+          "description": "What to expect at the first visit, forms, parking. Offer to anyone booking a first visit.",
+          "url": "https://example.com/new-patient-guide.pdf",
+          "attach": true
+        }
+      ],
+      "autoAfterCall": { "sms": true, "email": true },
+      "guidance": "Keep follow-ups short and warm. For leads who didn't book, include the booking link https://example.com/book."
+    },
+    "sms": { "missedCallText": "Hi, it's Bright Smile Dental. Sorry we missed your call! Reply here and we'll help, or book online at https://example.com/book" },
+    "voice": { "stability": 0.4, "style": 0.2 },
+    "ambience": { "preset": "office", "volume": 0.1 },
+    "dialer": { "maxConcurrentCalls": 3, "callingHours": { "start": "09:00", "end": "19:00", "days": [1, 2, 3, 4, 5, 6] } }
+  }
+}
