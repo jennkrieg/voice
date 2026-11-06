@@ -175,10 +175,27 @@ async function seed() {
     const outbound = newId("agt");
     await db().insert(schema.agents).values({ id: outbound, tenantId, name: "New lead caller", config: { ...cfg, instructions: "Call new website leads, qualify them and book a consultation." } });
     const phone = `+1555010${ti}${100 + ti}`.slice(0, 12);
+    const ok = { ok: true, at: new Date().toISOString() };
+    const trust: Record<string, { ok: boolean; at: string }> = ti === 0 ? { customerProfileSid: ok, shakenStirSid: ok, cnamSid: ok, voiceIntegritySid: ok } : {};
     await db().insert(schema.phoneNumbers).values([
-      { id: newId("num"), tenantId, agentId, e164: phone, twilioSid: `PN${ti}demo`, friendlyName: "Main line" },
-      { id: newId("num"), tenantId, agentId: outbound, e164: `+1555020${ti}${200 + ti}`.slice(0, 12), twilioSid: `PN${ti}demo2`, friendlyName: "Outbound" },
+      { id: newId("num"), tenantId, agentId, e164: phone, twilioSid: `PN${ti}demo`, friendlyName: "Main line", trust, health: { status: "new", attempts: 0, answered: 0, shortCalls: 0, answerRate: 0 } },
+      { id: newId("num"), tenantId, agentId: outbound, e164: ["+14155550142", "+17205550188", "+15125550173"][ti], twilioSid: `PN${ti}demo2`, friendlyName: "Local · San Francisco", region: "CA", locality: "San Francisco", trust, health: { status: "good", attempts: 212, answered: 81, shortCalls: 9, answerRate: 0.382 } },
+      ...(ti === 0
+        ? [
+            { id: newId("num"), tenantId, agentId: outbound, e164: "+13105550119", twilioSid: "PNdemo3", friendlyName: "Local · Los Angeles", region: "CA", locality: "Los Angeles", trust, health: { status: "watch", attempts: 96, answered: 15, shortCalls: 4, answerRate: 0.156 } },
+            { id: newId("num"), tenantId, agentId: outbound, e164: "+16195550127", twilioSid: "PNdemo4", friendlyName: "Local · San Diego", region: "CA", locality: "San Diego", trust, health: { status: "at_risk", attempts: 88, answered: 6, shortCalls: 3, answerRate: 0.068 }, restedUntil: new Date(Date.now() + 2 * 86400_000) },
+            { id: newId("num"), tenantId, agentId: outbound, e164: "+12125550161", twilioSid: "PNdemo5", friendlyName: "Local · New York", region: "NY", locality: "New York", trust, health: { status: "new", attempts: 7, answered: 3, shortCalls: 0, answerRate: 0.43 } },
+          ]
+        : []),
     ]);
+    if (ti === 0) {
+      await db().update(schema.tenants).set({
+        settings: {
+          trustHub: { customerProfileSid: "BU" + "1".repeat(32), shakenStirSid: "BU" + "2".repeat(32), cnamSid: "BU" + "3".repeat(32), voiceIntegritySid: "BU" + "4".repeat(32) },
+          business: { legalName: "Bright Smile Dental LLC", callerIdName: "BRIGHT SMILE", website: "https://brightsmile.example", address: "120 Main Street, Suite 4, Springfield", contactEmail: "office@brightsmile.example", useCase: "Returning calls to people who requested an appointment on our website" },
+        },
+      }).where((await import("drizzle-orm")).eq(schema.tenants.id, tenantId));
+    }
     await db().insert(schema.integrations).values([
       { id: newId("int"), tenantId, kind: "hubspot", label: "HubSpot", settings: { callOnCreate: true, callOnPropertyChange: ["lifecyclestage"] }, secretsEnc: encryptJson({ accessToken: "demo" }) },
       { id: newId("int"), tenantId, kind: "calcom", label: "Cal.com – New patient exam", settings: { eventTypeId: 123 }, secretsEnc: encryptJson({ apiKey: "demo" }) },
@@ -234,6 +251,8 @@ async function seed() {
         fromNumber: direction === "inbound" ? contactPhone : phone,
         toNumber: direction === "inbound" ? phone : contactPhone,
         status: "completed",
+        dialedAt: direction === "outbound" ? created : null,
+        callerIdReason: direction === "outbound" ? "same_area_code" : null,
         twilioCallSid: `CA${id}`,
         startedAt: created,
         endedAt: new Date(t),

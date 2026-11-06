@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Bot, Building2, Contact, Lightbulb, LogOut, Phone, PhoneCall, Plug, Settings, ShieldCheck, ArrowLeft, Menu } from "lucide-react";
+import { BarChart3, Bot, Building2, Contact, Lightbulb, LogOut, Phone, PhoneCall, Plug, Settings, ShieldCheck, ShieldAlert, ArrowLeft, Menu } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "../lib/session";
 import { api } from "../lib/api";
@@ -11,6 +11,7 @@ const CLIENT_NAV = [
   { to: "/calls", label: "Calls", icon: PhoneCall },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/numbers", label: "Phone numbers", icon: Phone },
+  { to: "/spam-protection", label: "Spam protection", icon: ShieldAlert },
   { to: "/contacts", label: "Contacts", icon: Contact },
   { to: "/insights", label: "AI coaching", icon: Lightbulb },
   { to: "/integrations", label: "Integrations", icon: Plug },

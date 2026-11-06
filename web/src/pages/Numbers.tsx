@@ -3,14 +3,16 @@ import { Phone, Plus, Search, Download } from "lucide-react";
 import { api } from "../lib/api";
 import { useApi, useAction, type Agent, type PhoneNumber } from "../lib/hooks";
 import { phone, when } from "../lib/format";
-import { Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, Table } from "../components/ui";
+import { Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, Switch, Table } from "../components/ui";
+import { HealthBadge } from "./SpamProtection";
+import { Link } from "react-router-dom";
 
 export function Numbers() {
   const numbers = useApi<{ numbers: PhoneNumber[] }>("/api/numbers");
   const agents = useApi<{ agents: Agent[] }>("/api/agents");
   const [buying, setBuying] = useState(false);
   const [importing, setImporting] = useState(false);
-  const assign = useAction((v: { id: string; agentId: string | null }) => api(`/api/numbers/${v.id}`, { method: "PATCH", json: { agentId: v.agentId } }), { success: "Number updated" });
+  const assign = useAction((v: { id: string } & Record<string, unknown>) => api(`/api/numbers/${v.id}`, { method: "PATCH", json: { ...v, id: undefined } }), { success: "Number updated" });
   const release = useAction((id: string) => api(`/api/numbers/${id}?release=true`, { method: "DELETE" }), { success: "Number released" });
   return (
     <>
@@ -36,11 +38,17 @@ export function Numbers() {
             Get a local number in any area code. It's ready for calls and texts within a minute.
           </Empty>
         ) : (
-          <Table head={["Number", "Label", "Answered by", "Added", ""]}>
-            {numbers.data.numbers.map((n) => (
+          <Table head={["Number", "Area", "Answered by", "Outbound caller ID", "Today", "Health", ""]}>
+            {numbers.data.numbers.map((n: any) => (
               <tr key={n.id}>
-                <td className="px-4 py-3 font-medium tabular-nums">{phone(n.e164)}</td>
-                <td className="px-4 py-3 text-slate-600">{n.friendlyName ?? "–"}</td>
+                <td className="px-4 py-3">
+                  <div className="whitespace-nowrap font-medium tabular-nums">{phone(n.e164)}</div>
+                  <div className="text-xs text-slate-500">{n.friendlyName ?? ""}</div>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                  {n.areaCode ?? "–"}
+                  {n.locality || n.state ? <span className="text-slate-400"> · {[n.locality, n.state].filter(Boolean).join(", ")}</span> : null}
+                </td>
                 <td className="px-4 py-3">
                   <Select className="w-56" value={n.agentId ?? ""} onChange={(e) => assign.mutate({ id: n.id, agentId: e.target.value || null })}>
                     <option value="">Not assigned (won't answer)</option>
@@ -51,7 +59,22 @@ export function Numbers() {
                     ))}
                   </Select>
                 </td>
-                <td className="px-4 py-3 text-slate-500">{when(n.createdAt)}</td>
+                <td className="px-4 py-3">
+                  <Switch checked={n.outboundEnabled} onChange={(v) => assign.mutate({ id: n.id, outboundEnabled: v })} />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                  {n.usedToday} / {n.dailyCap ?? agents.data?.agents.find((a) => a.id === n.agentId)?.config.dialer.perNumberDailyCap ?? 75}
+                </td>
+                <td className="px-4 py-3">
+                  <span className="flex items-center gap-1.5">
+                    <HealthBadge health={n.health} restedUntil={n.restedUntil} />
+                    {n.restedUntil && new Date(n.restedUntil) > new Date() && (
+                      <button className="text-xs text-brand hover:underline" onClick={() => assign.mutate({ id: n.id, restedUntil: null })}>
+                        Resume
+                      </button>
+                    )}
+                  </span>
+                </td>
                 <td className="px-4 py-3 text-right">
                   <Button size="sm" variant="ghost" onClick={() => confirm(`Release ${phone(n.e164)}? You may not be able to get it back.`) && release.mutate(n.id)}>
                     Release
@@ -62,7 +85,13 @@ export function Numbers() {
           </Table>
         )}
       </Card>
-      <p className="mt-4 text-xs text-slate-500">US texting: register the business for A2P 10DLC in Twilio before sending texts at volume, or carriers may block them.</p>
+      <div className="mt-4 space-y-1 text-xs text-slate-500">
+        <p>
+          Outbound calls use the number that matches the person's area code (or state), and each number makes at most its daily cap of calls. Turn on carrier verification and caller ID name under{" "}
+          <Link to="/spam-protection" className="font-medium text-brand hover:underline">Spam protection</Link>.
+        </p>
+        <p>US texting: register the business for A2P 10DLC in Twilio before sending texts at volume, or carriers may block them.</p>
+      </div>
       <BuyModal open={buying} onClose={() => setBuying(false)} agents={agents.data?.agents ?? []} />
       <ImportModal open={importing} onClose={() => setImporting(false)} agents={agents.data?.agents ?? []} />
     </>
@@ -76,7 +105,7 @@ function BuyModal({ open, onClose, agents }: { open: boolean; onClose: () => voi
   const [results, setResults] = useState<any[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [searching, setSearching] = useState(false);
-  const buy = useAction((p: string) => api("/api/numbers", { json: { phoneNumber: p, agentId: agentId || undefined } }), { success: "Number added", onSuccess: onClose });
+  const buy = useAction((r: any) => api("/api/numbers", { json: { phoneNumber: r.phoneNumber, agentId: agentId || undefined, region: r.region ?? undefined, locality: r.locality ?? undefined } }), { success: "Number added", onSuccess: onClose });
   async function search() {
     setSearching(true);
     setError(null);
@@ -124,7 +153,7 @@ function BuyModal({ open, onClose, agents }: { open: boolean; onClose: () => voi
                   <p className="font-medium tabular-nums">{phone(r.phoneNumber)}</p>
                   <p className="text-xs text-slate-500">{[r.locality, r.region].filter(Boolean).join(", ")}</p>
                 </div>
-                <Button size="sm" variant="primary" loading={buy.isPending && buy.variables === r.phoneNumber} onClick={() => buy.mutate(r.phoneNumber)}>
+                <Button size="sm" variant="primary" loading={buy.isPending && buy.variables?.phoneNumber === r.phoneNumber} onClick={() => buy.mutate(r)}>
                   Get this number
                 </Button>
               </li>

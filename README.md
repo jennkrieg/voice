@@ -112,7 +112,7 @@ Each client brings their own Cal.com API key, HubSpot private app token, GoHighL
 cd voice-agent
 npm install
 cp .env.example .env    # fill in keys
-npm test                # 29 tests: logic, audio, logins and permissions, API end-to-end with an in-memory database
+npm test                # 38 tests: logic, audio, logins and permissions, API end-to-end with an in-memory database
 npm run build           # builds the dashboard
 npm run dev
 ```
@@ -283,6 +283,40 @@ Outcomes: `appointment_booked`, `transferred`, `interested_follow_up`, `callback
 
 ---
 
+## Not showing up as "Spam Likely"
+
+Carriers (through Hiya, First Orion/T-Mobile and TNS for AT&T/Verizon) score every outbound number. The platform
+does what it can automatically, and the **Spam protection** page walks each client through the rest.
+
+**Automatic**
+* **No robocall silence.** Voicemail detection runs in the background (Twilio async AMD), so a person hears
+  the agent the instant they pick up. Waiting a few silent seconds is the classic robocall tell: people hang up,
+  and carriers count those hang-ups against the number. Voicemails still get the agent's message after the beep.
+* **Local presence.** Each agent can own a pool of numbers. Outbound calls use, in order: the number this person
+  saw before, a number with their area code, one in their state, then the business's main number. Optionally,
+  local numbers are bought automatically (`dialer.localPresence.autoBuy`, capped by `maxPoolSize`). Every pool
+  number answers callbacks and texts with the same agent, which some state laws require.
+* **Volume limits.** `dialer.perNumberDailyCap` (default 75) per number, with calls spread across the pool.
+  When every number is at its cap, calls move to the next calling window instead of overusing one number.
+* **Number health.** Every 30 minutes, each number's 7-day answer rate and share of very short calls are
+  checked. A sudden collapse usually means a spam label. Those numbers are flagged in the dashboard and rested
+  for 3 days (`dialer.autoRestFlaggedNumbers`).
+* Calling hours, do-not-call, no repeat calls within 24 hours, honest AI disclosure, and callers can always opt out.
+
+**Per client, once** (Twilio Trust Hub; approval takes about 1 to 3 business days)
+1. **Business Profile:** the client's verified identity.
+2. **SHAKEN/STIR:** calls are signed with "A" attestation ("verified" on many phones).
+3. **CNAM:** the business name appears on caller ID (max 15 characters).
+4. **Voice Integrity:** registers numbers with the carriers' spam-analytics engines and removes existing labels.
+5. Optional **Branded Calling:** logo and call reason on supported phones.
+
+Paste each approved SID on the Spam protection page. Every existing and future number is attached to them
+automatically, and the page shows each one's approval status. Also download the **Free Caller Registry** file
+and submit it at freecallerregistry.com.
+
+Avoid "number cycling": buying new numbers just to replace flagged ones is itself treated as a spam signal.
+Fix the cause instead (consent, volume, opener), and let Voice Integrity clear the label.
+
 ## Compliance (read before going live)
 
 Not legal advice, but these matter when you sell outbound AI calling:
@@ -298,7 +332,7 @@ Not legal advice, but these matter when you sell outbound AI calling:
 
 ## Status: what's tested and what isn't
 
-**Tested here** (`npm test`, 29 passing, plus a scripted browser run through every dashboard page with demo data): config validation; slot finding and calling-hours maths; phone
+**Tested here** (`npm test`, 38 passing, plus a scripted browser run through every dashboard page with demo data): config validation; slot finding and calling-hours maths; phone
 normalisation; encryption and signed tokens; HubSpot signature checks; the μ-law codec; WAV decoding; ambience
 generation; the audio pacing, mixing and interruption logic; and the API end-to-end on an in-memory Postgres.
 The end-to-end tests cover:

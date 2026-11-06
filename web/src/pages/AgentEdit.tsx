@@ -644,7 +644,7 @@ function RulesTab({ cfg, set }: { cfg: Cfg; set: Setter }) {
               <Input type="number" min={0} value={d.minHoursBetweenCalls} onChange={(e) => set("dialer.minHoursBetweenCalls", Number(e.target.value))} />
             </Field>
           </div>
-          <Switch checked={d.leaveVoicemail} onChange={(v) => set("dialer.leaveVoicemail", v)} label="Leave a voicemail" hint="Detects answering machines and leaves your voicemail message after the beep." />
+          <Switch checked={d.leaveVoicemail} onChange={(v) => set("dialer.leaveVoicemail", v)} label="Leave a voicemail" hint="Detected in the background, so real people hear the agent instantly; voicemails get your message after the beep." />
         </div>
       </Card>
       <Card title="During calls">
@@ -661,6 +661,42 @@ function RulesTab({ cfg, set }: { cfg: Cfg; set: Setter }) {
             <Field label="Max call length (minutes)">
               <Input type="number" min={1} value={b.maxCallMinutes} onChange={(e) => set("behaviour.maxCallMinutes", Number(e.target.value))} />
             </Field>
+          </div>
+        </div>
+      </Card>
+      <Card title="Caller ID & spam protection" description="Which number people see, and how hard each number is worked." className="lg:col-span-2">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-4">
+            <Switch
+              checked={d.localPresence.enabled}
+              onChange={(v) => set("dialer.localPresence.enabled", v)}
+              label="Call from a local number"
+              hint="Uses one of this agent's numbers with the person's area code, or one in their state. Otherwise it uses the business number."
+            />
+            <Switch
+              checked={d.localPresence.autoBuy}
+              onChange={(v) => set("dialer.localPresence.autoBuy", v)}
+              label="Buy local numbers automatically"
+              hint="When no number matches the person's area code, buy one (about $1-2/month each). Callbacks and texts to it reach this agent."
+            />
+            {d.localPresence.autoBuy && (
+              <Field label="Most numbers this agent may have">
+                <Input type="number" min={1} max={100} value={d.localPresence.maxPoolSize} onChange={(e) => set("dialer.localPresence.maxPoolSize", Number(e.target.value))} />
+              </Field>
+            )}
+            <Field label="Business number (fallback)" hint="E.164, e.g. +14155550100. Leave empty to use the agent's first number.">
+              <Input value={d.businessNumber ?? ""} onChange={(e) => set("dialer.businessNumber", e.target.value || undefined)} />
+            </Field>
+          </div>
+          <div className="space-y-4">
+            <Field label="Max calls per number per day" hint="Keep it modest (50 to 100). High volume from one number is the most common reason carriers flag it.">
+              <Input type="number" min={1} max={1000} value={d.perNumberDailyCap} onChange={(e) => set("dialer.perNumberDailyCap", Number(e.target.value))} />
+            </Field>
+            <Switch checked={d.stickyCallerId} onChange={(v) => set("dialer.stickyCallerId", v)} label="Same person, same number" hint="Follow-up calls come from the number they saw before, so they recognise it." />
+            <Switch checked={d.autoRestFlaggedNumbers} onChange={(v) => set("dialer.autoRestFlaggedNumbers", v)} label="Rest numbers that look flagged" hint="If a number's answer rate collapses, stop using it for 3 days." />
+            <Link to="/spam-protection" className="inline-block text-sm font-medium text-brand hover:underline">
+              Set up carrier verification and caller ID name →
+            </Link>
           </div>
         </div>
       </Card>

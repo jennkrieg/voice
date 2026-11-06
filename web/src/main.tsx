@@ -18,6 +18,7 @@ import { Integrations } from "./pages/Integrations";
 import { Contacts } from "./pages/Contacts";
 import { Insights } from "./pages/Insights";
 import { SettingsPage } from "./pages/Settings";
+import { SpamProtection } from "./pages/SpamProtection";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -49,6 +50,7 @@ function App() {
         <Route path="/agents" element={<Guard client><Agents /></Guard>} />
         <Route path="/agents/:id" element={<Guard client><AgentEdit /></Guard>} />
         <Route path="/numbers" element={<Guard client><Numbers /></Guard>} />
+        <Route path="/spam-protection" element={<Guard client><SpamProtection /></Guard>} />
         <Route path="/contacts" element={<Guard client><Contacts /></Guard>} />
         <Route path="/insights" element={<Guard client><Insights /></Guard>} />
         <Route path="/integrations" element={<Guard client><Integrations /></Guard>} />

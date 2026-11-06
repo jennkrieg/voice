@@ -9,6 +9,7 @@ import { parseAgentConfig, type AgentConfig } from "../agents/config.js";
 import { nextAllowedCallTime } from "./calling-window.js";
 import { twilioClient } from "../telephony/twilio-client.js";
 import { addCallEvent } from "../calls.js";
+import { chooseCallerId, refreshNumberHealth } from "./pool.js";
 
 export async function agentNumber(agentId: string): Promise<string | null> {
   const [n] = await db().select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.agentId, agentId)).limit(1);
@@ -75,9 +76,21 @@ export async function enqueueCall(opts: {
 
 /** Place one queued call. Claims it atomically so two workers never dial the same call. */
 async function place(callId: string, cfg: AgentConfig) {
+  const [queued] = await db().select().from(schema.calls).where(eq(schema.calls.id, callId));
+  if (!queued || queued.status !== "queued") return;
+  const [tenant] = await db().select().from(schema.tenants).where(eq(schema.tenants.id, queued.tenantId));
+  const callerId = await chooseCallerId({ tenant, agentId: queued.agentId, cfg, contactPhone: queued.toNumber, contactId: queued.contactId });
+  if (!callerId) {
+    // Every number is at its daily cap or resting: try again at the next calling window tomorrow.
+    const tomorrow = DateTime.now().setZone(cfg.timezone).plus({ days: 1 }).startOf("day");
+    const next = nextAllowedCallTime(tomorrow, cfg.dialer.callingHours, cfg.timezone);
+    await db().update(schema.calls).set({ scheduledFor: next.toJSDate() }).where(eq(schema.calls.id, callId));
+    await addCallEvent(queued, "call.deferred", { reason: "all caller-ID numbers reached their daily cap or are resting", until: next.toISO() });
+    return;
+  }
   const [claimed] = await db()
     .update(schema.calls)
-    .set({ status: "dialing" })
+    .set({ status: "dialing", fromNumber: callerId.e164, callerIdReason: callerId.reason, dialedAt: new Date() })
     .where(and(eq(schema.calls.id, callId), eq(schema.calls.status, "queued")))
     .returning();
   if (!claimed) return;
@@ -91,12 +104,21 @@ async function place(callId: string, cfg: AgentConfig) {
       statusCallback: `${base}/twilio/status?callId=${encodeURIComponent(callId)}`,
       statusCallbackMethod: "POST",
       statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
-      ...(env.TWILIO_MACHINE_DETECTION && cfg.dialer.leaveVoicemail ? { machineDetection: "DetectMessageEnd" } : {}),
+      // Async detection: the agent greets the person the instant they answer (no tell-tale silence,
+      // which is what makes people hang up and carriers flag "robocall"); voicemail is handled in the background.
+      ...(env.TWILIO_MACHINE_DETECTION && cfg.dialer.leaveVoicemail
+        ? {
+            machineDetection: "DetectMessageEnd",
+            asyncAmd: "true",
+            asyncAmdStatusCallback: `${base}/twilio/amd?callId=${encodeURIComponent(callId)}`,
+            asyncAmdStatusCallbackMethod: "POST",
+          }
+        : {}),
       timeout: 25,
     });
     await db().update(schema.calls).set({ twilioCallSid: call.sid }).where(eq(schema.calls.id, callId));
     if (claimed.contactId) await db().update(schema.contacts).set({ lastCallAt: new Date() }).where(eq(schema.contacts.id, claimed.contactId));
-    await addCallEvent(claimed, "call.dialing", { twilioCallSid: call.sid });
+    await addCallEvent(claimed, "call.dialing", { twilioCallSid: call.sid, callerId: callerId.e164, callerIdReason: callerId.reason });
   } catch (e) {
     log.error("failed to place call", { callId, error: errMsg(e) });
     await db().update(schema.calls).set({ status: "failed", reason: errMsg(e).slice(0, 300) }).where(eq(schema.calls.id, callId));
@@ -141,5 +163,12 @@ export function startDialer(intervalMs = 5000) {
   };
   const t = setInterval(tick, intervalMs);
   void tick();
-  return () => clearInterval(t);
+  // Number health (spam-label early warning) every 30 minutes.
+  const health = () => refreshNumberHealth().catch((e) => log.warn("number health refresh failed", { error: errMsg(e) }));
+  const h = setInterval(health, 30 * 60_000);
+  void health();
+  return () => {
+    clearInterval(t);
+    clearInterval(h);
+  };
 }

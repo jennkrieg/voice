@@ -1,5 +1,21 @@
 import { pgTable, text, timestamp, jsonb, boolean, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
 
+export type TenantSettings = {
+  trustHub?: {
+    /** Approved Business Profile (BU…). */
+    customerProfileSid?: string;
+    /** SHAKEN/STIR trust product (BU…): calls get "A" attestation / verified. */
+    shakenStirSid?: string;
+    /** CNAM trust product (BU…): shows the business name on caller ID. */
+    cnamSid?: string;
+    /** Voice Integrity trust product (BU…): registers numbers with carrier spam-analytics engines. */
+    voiceIntegritySid?: string;
+    /** Branded Calling trust product (BU…), where available. */
+    brandedCallingSid?: string;
+  };
+  business?: { legalName?: string; website?: string; ein?: string; address?: string; contactEmail?: string; callerIdName?: string; useCase?: string };
+};
+
 /** A tenant is one of your clients (a business you sell the agent to). */
 export const tenants = pgTable("tenants", {
   id: text("id").primaryKey(),
@@ -8,6 +24,8 @@ export const tenants = pgTable("tenants", {
   apiKeyHash: text("api_key_hash").notNull(),
   /** Shared secret CRMs send when they call our inbound webhook for this tenant. */
   webhookSecret: text("webhook_secret").notNull(),
+  /** Caller-reputation setup: Twilio Trust Hub SIDs, business info for registries. */
+  settings: jsonb("settings").$type<TenantSettings>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -54,9 +72,20 @@ export const phoneNumbers = pgTable(
     e164: text("e164").notNull(),
     twilioSid: text("twilio_sid").notNull(),
     friendlyName: text("friendly_name"),
+    region: text("region"),
+    locality: text("locality"),
+    /** Use this number as caller ID for outbound calls. */
+    outboundEnabled: boolean("outbound_enabled").notNull().default(true),
+    /** Taken out of outbound rotation until this time (e.g. after its answer rate dropped). */
+    restedUntil: timestamp("rested_until", { withTimezone: true }),
+    /** Max outbound calls per day from this number (overrides the agent default). */
+    dailyCap: integer("daily_cap"),
+    /** Which Trust Hub products this number is registered with, and any errors. */
+    trust: jsonb("trust").$type<Record<string, { ok: boolean; error?: string; at: string }>>().notNull().default({}),
+    health: jsonb("health"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("phone_numbers_e164_idx").on(t.e164)],
+  (t) => [uniqueIndex("phone_numbers_e164_idx").on(t.e164), index("phone_numbers_agent_idx").on(t.agentId)],
 );
 
 export type IntegrationKind = "google_calendar" | "calcom" | "hubspot" | "gohighlevel" | "webhook" | "email_smtp";
@@ -128,6 +157,8 @@ export const calls = pgTable(
     status: text("status").$type<CallStatus>().notNull(),
     twilioCallSid: text("twilio_call_sid"),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    dialedAt: timestamp("dialed_at", { withTimezone: true }),
+    callerIdReason: text("caller_id_reason"),
     attempt: integer("attempt").notNull().default(1),
     reason: text("reason"),
     answeredBy: text("answered_by"),

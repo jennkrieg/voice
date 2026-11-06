@@ -18,6 +18,10 @@ import { upsertContact, getContact } from "../contacts.js";
 import { enqueueCall } from "../dialer/dialer.js";
 import { getCallForTenant } from "../calls.js";
 import { twilioClient } from "../telephony/twilio-client.js";
+import { buyNumber, numberWebhooks } from "../dialer/pool.js";
+import { registerNumberWithTrustHub, trustProductStatuses, TRUST_LABELS } from "../telephony/trust.js";
+import { areaCodeOf, stateOfNumber } from "../lib/area-codes.js";
+import { DateTime as LDateTime } from "luxon";
 import { listVoices, previewVoice } from "../telephony/tts.js";
 import { loadAmbience, SAMPLE_RATE, type AmbiencePreset } from "../audio/ambience.js";
 import { sendSms } from "../sms/send.js";
@@ -90,6 +94,61 @@ export function tenantRouter() {
       const apiKey = newSecret("vk_live_", 32);
       await db().update(schema.tenants).set({ apiKeyHash: sha256Hex(apiKey) }).where(eq(schema.tenants.id, req.tenant!.id));
       res.json({ apiKey, note: "The old key stops working now. Shown once." });
+    }),
+  );
+
+  // ---------- caller reputation (anti-spam) ----------
+  r.get(
+    "/compliance",
+    h(async (req, res) => {
+      const t = req.tenant!;
+      const numbers = await db().select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.tenantId, t.id));
+      const statuses = env.TWILIO_ACCOUNT_SID ? await trustProductStatuses(t).catch(() => ({})) : {};
+      res.json({ settings: t.settings ?? {}, labels: TRUST_LABELS, statuses, numbers: numbers.map((n) => ({ id: n.id, e164: n.e164, trust: n.trust, health: n.health, restedUntil: n.restedUntil })) });
+    }),
+  );
+  r.put(
+    "/compliance",
+    requireOwner,
+    h(async (req, res) => {
+      const sid = z.string().regex(/^BU[0-9a-fA-F]{32}$/, "Trust Hub SIDs start with BU followed by 32 characters").optional().or(z.literal("").transform(() => undefined));
+      const body = z
+        .object({
+          trustHub: z.object({ customerProfileSid: sid, shakenStirSid: sid, cnamSid: sid, voiceIntegritySid: sid, brandedCallingSid: sid }).partial().default({}),
+          business: z
+            .object({ legalName: z.string(), website: z.string(), ein: z.string(), address: z.string(), contactEmail: z.string(), callerIdName: z.string().max(15, "Caller ID names are limited to 15 characters"), useCase: z.string() })
+            .partial()
+            .default({}),
+        })
+        .parse(req.body);
+      const [t] = await db().update(schema.tenants).set({ settings: body }).where(eq(schema.tenants.id, req.tenant!.id)).returning();
+      res.json({ settings: t.settings });
+    }),
+  );
+  /** Assign every number to the configured Trust Hub products (run after a product is approved). */
+  r.post(
+    "/compliance/sync",
+    requireOwner,
+    h(async (req, res) => {
+      const numbers = await db().select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.tenantId, req.tenant!.id));
+      const results: Record<string, unknown> = {};
+      for (const n of numbers) results[n.e164] = await registerNumberWithTrustHub(req.tenant!, n);
+      res.json({ results });
+    }),
+  );
+  /** CSV for the Free Caller Registry (Hiya, First Orion/T-Mobile, TNS/AT&T & Verizon). */
+  r.get(
+    "/compliance/registry.csv",
+    h(async (req, res) => {
+      const t = req.tenant!;
+      const b = t.settings?.business ?? {};
+      const numbers = await db().select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.tenantId, t.id));
+      const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const lines = [
+        ["Phone Number", "Business Name", "Caller ID Name", "Website", "Address", "Contact Email", "Call Purpose", "Calls Per Day (est.)"].map(esc).join(","),
+        ...numbers.map((n) => [n.e164, b.legalName ?? t.name, b.callerIdName ?? "", b.website ?? "", b.address ?? "", b.contactEmail ?? "", b.useCase ?? "Appointment scheduling and follow-up with customers who requested contact", n.dailyCap ?? 75].map(esc).join(",")),
+      ];
+      res.type("text/csv").setHeader("Content-Disposition", `attachment; filename="caller-registry-${t.id}.csv"`).send(lines.join("\n"));
     }),
   );
 
@@ -233,7 +292,17 @@ export function tenantRouter() {
   r.get(
     "/numbers",
     h(async (req, res) => {
-      res.json({ numbers: await db().select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.tenantId, req.tenant!.id)) });
+      const rows = await db().select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.tenantId, req.tenant!.id)).orderBy(schema.phoneNumbers.createdAt);
+      const start = LDateTime.now().setZone(req.tenant!.timezone).startOf("day").toJSDate();
+      const usage = rows.length
+        ? await db()
+            .select({ from: schema.calls.fromNumber, n: sql<number>`count(*)::int` })
+            .from(schema.calls)
+            .where(and(eq(schema.calls.tenantId, req.tenant!.id), eq(schema.calls.direction, "outbound"), sql`${schema.calls.dialedAt} >= ${start}`))
+            .groupBy(schema.calls.fromNumber)
+        : [];
+      const used = new Map(usage.map((u) => [u.from, u.n]));
+      res.json({ numbers: rows.map((n) => ({ ...n, areaCode: areaCodeOf(n.e164), state: n.region ?? stateOfNumber(n.e164), usedToday: used.get(n.e164) ?? 0 })) });
     }),
   );
   r.get(
@@ -247,24 +316,11 @@ export function tenantRouter() {
       res.json({ numbers: list.map((n) => ({ phoneNumber: n.phoneNumber, friendlyName: n.friendlyName, locality: n.locality, region: n.region })) });
     }),
   );
-  const webhookUrls = () => ({
-    voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice`,
-    voiceMethod: "POST",
-    statusCallback: `${env.PUBLIC_BASE_URL}/twilio/status`,
-    statusCallbackMethod: "POST",
-    smsUrl: `${env.PUBLIC_BASE_URL}/twilio/sms`,
-    smsMethod: "POST",
-  });
   r.post(
     "/numbers",
     h(async (req, res) => {
-      const body = z.object({ phoneNumber: z.string(), agentId: z.string().optional() }).parse(req.body);
-      const bought = await twilioClient().incomingPhoneNumbers.create({ phoneNumber: body.phoneNumber, friendlyName: `${req.tenant!.name}`, ...webhookUrls() });
-      const [row] = await db()
-        .insert(schema.phoneNumbers)
-        .values({ id: newId("num"), tenantId: req.tenant!.id, agentId: body.agentId ?? null, e164: bought.phoneNumber, twilioSid: bought.sid, friendlyName: bought.friendlyName })
-        .returning();
-      res.status(201).json(row);
+      const body = z.object({ phoneNumber: z.string(), agentId: z.string().optional(), region: z.string().optional(), locality: z.string().optional() }).parse(req.body);
+      res.status(201).json(await buyNumber(req.tenant!, body.phoneNumber, body));
     }),
   );
   /** Use a number that's already in your Twilio account (or ported in). */
@@ -275,21 +331,24 @@ export function tenantRouter() {
       const e164 = toE164(body.phoneNumber);
       const [found] = await twilioClient().incomingPhoneNumbers.list({ phoneNumber: e164 ?? body.phoneNumber, limit: 1 });
       if (!found) return res.status(404).json({ error: "number not found in the Twilio account" });
-      await twilioClient().incomingPhoneNumbers(found.sid).update(webhookUrls());
+      await twilioClient().incomingPhoneNumbers(found.sid).update(numberWebhooks());
       const [row] = await db()
         .insert(schema.phoneNumbers)
         .values({ id: newId("num"), tenantId: req.tenant!.id, agentId: body.agentId ?? null, e164: found.phoneNumber, twilioSid: found.sid, friendlyName: found.friendlyName })
         .returning();
+      await registerNumberWithTrustHub(req.tenant!, row).catch(() => null);
       res.status(201).json(row);
     }),
   );
   r.patch(
     "/numbers/:id",
     h(async (req, res) => {
-      const body = z.object({ agentId: z.string().nullable() }).parse(req.body);
+      const body = z
+        .object({ agentId: z.string().nullable().optional(), outboundEnabled: z.boolean().optional(), dailyCap: z.number().int().min(1).max(1000).nullable().optional(), restedUntil: z.null().optional(), friendlyName: z.string().optional() })
+        .parse(req.body);
       const [row] = await db()
         .update(schema.phoneNumbers)
-        .set({ agentId: body.agentId })
+        .set(body)
         .where(and(eq(schema.phoneNumbers.id, req.params.id as string), eq(schema.phoneNumbers.tenantId, req.tenant!.id)))
         .returning();
       if (!row) return res.status(404).json({ error: "not found" });

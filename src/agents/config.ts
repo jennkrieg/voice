@@ -156,6 +156,24 @@ export const AgentConfig = z.object({
         .object({ start: hhmm.default("09:00"), end: hhmm.default("20:00"), days: z.array(z.number().int().min(1).max(7)).default([1, 2, 3, 4, 5, 6]) })
         .prefault({ start: "09:00", end: "20:00", days: [1, 2, 3, 4, 5, 6] }),
       leaveVoicemail: z.boolean().default(true),
+      /** Call from a number with the contact's area code (or state) when the agent has one. */
+      localPresence: z
+        .object({
+          enabled: z.boolean().default(true),
+          /** Buy a local number automatically when none matches (costs about $1-2/month per number). */
+          autoBuy: z.boolean().default(false),
+          /** Cap on how many numbers auto-buy may add to this agent. */
+          maxPoolSize: z.number().int().min(1).max(100).default(10),
+        })
+        .prefault({}),
+      /** Business's main number (E.164) used when no local match exists. Defaults to the agent's oldest number. */
+      businessNumber: z.string().optional(),
+      /** Max outbound calls per number per day. High volume on one number is the #1 cause of spam labels. */
+      perNumberDailyCap: z.number().int().min(1).max(1000).default(75),
+      /** Call people back from the same number they saw before. */
+      stickyCallerId: z.boolean().default(true),
+      /** Take a number out of rotation for 3 days if its answer rate collapses (likely labelled spam). */
+      autoRestFlaggedNumbers: z.boolean().default(true),
     })
     .prefault({}),
 

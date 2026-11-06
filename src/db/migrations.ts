@@ -138,4 +138,18 @@ export const MIGRATIONS: string[] = [
     created_at timestamptz NOT NULL DEFAULT now()
   )`,
   `CREATE INDEX IF NOT EXISTS insight_reports_tenant_idx ON insight_reports(tenant_id, created_at)`,
+
+  // --- caller reputation & local presence ---
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS region text`,
+  `ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS locality text`,
+  `ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS outbound_enabled boolean NOT NULL DEFAULT true`,
+  `ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS rested_until timestamptz`,
+  `ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS daily_cap integer`,
+  `ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS trust jsonb NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS health jsonb`,
+  `CREATE INDEX IF NOT EXISTS phone_numbers_agent_idx ON phone_numbers(agent_id)`,
+  `ALTER TABLE calls ADD COLUMN IF NOT EXISTS dialed_at timestamptz`,
+  `ALTER TABLE calls ADD COLUMN IF NOT EXISTS caller_id_reason text`,
+  `CREATE INDEX IF NOT EXISTS calls_from_dialed_idx ON calls(from_number, dialed_at)`,
 ];

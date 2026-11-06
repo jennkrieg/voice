@@ -87,6 +87,39 @@ export function twilioRouter() {
     xml(res, connectStream(callId));
   });
 
+  // Async answering-machine detection result (arrives while the agent may already be talking).
+  r.post("/amd", async (req, res) => {
+    res.sendStatus(204);
+    const callId = String(req.query.callId ?? "");
+    const call = await getCall(callId);
+    if (!call) return;
+    const answeredBy = String(req.body.AnsweredBy ?? "unknown");
+    await updateCall(callId, { answeredBy });
+    await addCallEvent(call, "amd.result", { answeredBy, detectionMs: req.body.MachineDetectionDuration });
+    const isMachine = answeredBy.startsWith("machine") || answeredBy === "fax";
+    if (!isMachine || call.transcript.some((t) => t.role === "caller" && t.text.split(" ").length > 6 && !/leave|message|tone|beep|unavailable/i.test(t.text))) return;
+    const [agent] = await db().select().from(schema.agents).where(eq(schema.agents.id, call.agentId));
+    const cfg = parseAgentConfig(agent.config);
+    await updateCall(callId, { status: "voicemail", endedBy: "system" });
+    await addCallEvent(call, "voicemail.detected", { answeredBy });
+    const sid = req.body.CallSid as string;
+    const { twilioClient } = await import("../telephony/twilio-client.js");
+    try {
+      if (!cfg.dialer.leaveVoicemail || answeredBy === "fax" || answeredBy === "machine_end_other") {
+        await twilioClient().calls(sid).update({ status: "completed" });
+      } else {
+        const token = signToken({ callId }, 600);
+        // Replaces the live AI stream with the voicemail message, played after the beep.
+        await twilioClient()
+          .calls(sid)
+          .update({ twiml: playTwiml(`${env.PUBLIC_BASE_URL}/twilio/voicemail.mp3?callId=${encodeURIComponent(callId)}&token=${encodeURIComponent(token)}`) });
+        await addCallEvent(call, "voicemail.left");
+      }
+    } catch (e) {
+      log.warn("voicemail handling failed", { callId, error: errMsg(e) });
+    }
+  });
+
   r.post("/status", async (req, res) => {
     res.sendStatus(204);
     const b = req.body as Record<string, string>;

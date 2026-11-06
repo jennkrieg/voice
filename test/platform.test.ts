@@ -265,6 +265,24 @@ test("ambience preview is a playable WAV", async () => {
   assert.equal(buf.length, 44 + 8000 * 10 * 2);
 });
 
+test("anti-spam settings: validated Trust Hub SIDs, numbers list shows area code/state, registry CSV", async () => {
+  const bad = await api("/api/compliance", { method: "PUT", json: { trustHub: { shakenStirSid: "nope" } } });
+  assert.equal(bad.status, 400);
+  const sid = "BU" + "a".repeat(32);
+  const ok = await api("/api/compliance", { method: "PUT", json: { trustHub: { shakenStirSid: sid, cnamSid: "" }, business: { legalName: "Acme Dental LLC", callerIdName: "ACME DENTAL", website: "https://acme.test" } } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.settings.trustHub.shakenStirSid, sid);
+  assert.equal((await api("/api/compliance", { method: "PUT", json: { business: { callerIdName: "A NAME LONGER THAN 15" } } })).status, 400);
+  const nums = await api("/api/numbers");
+  assert.equal(nums.body.numbers[0].areaCode, "555");
+  assert.equal(nums.body.numbers[0].usedToday, 0);
+  const csv = await fetch(`${base}/api/compliance/registry.csv`, { headers: { Authorization: `Bearer ${apiKey}` } }).then((r) => r.text());
+  assert.match(csv, /"\+15555550100","Acme Dental LLC","ACME DENTAL"/);
+  const patch = await api("/api/numbers/num_test", { method: "PATCH", json: { outboundEnabled: false, dailyCap: 40 } });
+  assert.equal(patch.body.outboundEnabled, false);
+  assert.equal(patch.body.dailyCap, 40);
+});
+
 test("HubSpot webhook rejects bad signatures", async () => {
   const int = await api("/api/integrations", { method: "POST", json: { kind: "hubspot", secrets: { accessToken: "pat-na1-xxxxxxxxxxxx", clientSecret: "cs" } } });
   const body = JSON.stringify([{ objectId: 1, subscriptionType: "contact.creation" }]);
