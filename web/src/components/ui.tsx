@@ -16,7 +16,7 @@ export function Button({ variant = "secondary", size = "md", loading, className,
   }[variant];
   const s = size === "sm" ? "h-8 px-3 text-xs" : "h-9 px-4 text-sm";
   return (
-    <button {...p} disabled={p.disabled || loading} className={cx("inline-flex items-center justify-center gap-2 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed", v, s, className)}>
+    <button {...p} disabled={p.disabled || loading} className={cx("inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed", v, s, className)}>
       {loading && <Loader2 className="size-4 animate-spin" />}
       {children}
     </button>
