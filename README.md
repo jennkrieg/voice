@@ -23,6 +23,53 @@ and AI coaching. You run one deployment for all of them.
 
 ---
 
+## The dashboard
+
+One web app with two sides, served by the same server at `PUBLIC_BASE_URL`:
+
+* **Your admin view** (`/admin`): all clients with their agents, numbers, calls, minutes and bookings for the
+  last 30 days. Create a client (with their login), open any client to manage it as them, and add teammates as
+  platform admins.
+* **The client portal**, white-labelled with your `BRAND_NAME`, `BRAND_LOGO_URL` and `BRAND_PRIMARY_COLOR`:
+  * **Overview:** calls, connect rate, booking rate, transfer rate, hang-up rate, AI score, minutes, calls per
+    day, an outcome breakdown, recent calls, and the latest coaching tip.
+  * **Calls:** filter by agent, status and outcome. Each call shows the recording player, a chat-style
+    transcript, the AI review with copyable instruction fixes, objections and unanswered questions,
+    follow-ups sent, and the event timeline.
+  * **Agents:** start from a template (receptionist, new lead caller, blank), then edit on tabs:
+    * Basics: instructions, knowledge, greetings
+    * Voice & sound: voice library with play buttons, sliders, live preview, "call me" test, background sound with listen buttons
+    * Calendar: bookable hours editor
+    * CRM: field mapping
+    * Transfers
+    * Follow-ups & texting: lead magnets, auto follow-ups
+    * Calling rules
+  * **Phone numbers:** search by area code, buy, assign to an agent, import, release.
+  * **Contacts:** search, call now, do-not-call and do-not-text switches, call history and SMS/email thread.
+  * **AI coaching:** generate and read reports.
+  * **Integrations:** connect cards for Google, Cal.com, HubSpot, GoHighLevel, SMTP with provider presets,
+    and webhooks; a test button; copyable CRM-trigger URLs.
+  * **Settings:** team logins (owner or member), password, API key.
+
+Owners can manage their team, API key and integrations; members can do everything else. Sessions are httpOnly
+cookies (SameSite=Lax, plus a required header on every change to block cross-site requests). Passwords are
+hashed with scrypt, and changing a password signs out other devices.
+
+### See it with sample data (no keys needed)
+
+```bash
+npm install
+npm run build
+npm run demo
+```
+
+Open http://localhost:8080 and sign in as `admin@demo.test` / `demo-admin-123` (you), or
+`owner@brightsmile.test` / `demo-owner-123` (a client). Data lives in memory and resets on restart.
+
+To work on the dashboard with hot reload, run `npm run dev` (API on :8080) and `npm run web` (dashboard on :5173).
+
+---
+
 ## How it works
 
 ```
@@ -38,7 +85,8 @@ After the call: Claude analysis → CRM note/fields → follow-up SMS/email → 
 * `src/agents/`: config schema, prompt, tools, conversation loop, post-call analysis, coaching reports
 * `src/integrations/`: Google Calendar, Cal.com, HubSpot, GoHighLevel, outbound webhooks
 * `src/dialer/`: queue, calling hours, retries
-* `src/api/`: REST API (platform admin, client API, Twilio webhooks, CRM webhooks, OAuth)
+* `src/api/`: REST API (dashboard login, platform admin, client API, Twilio webhooks, CRM webhooks, OAuth)
+* `web/`: the dashboard (React, Vite, Tailwind), built into `web/dist` and served by the API server
 * `src/audio/`: μ-law codec, background ambience generator, WAV loader
 
 ---
@@ -64,7 +112,8 @@ Each client brings their own Cal.com API key, HubSpot private app token, GoHighL
 cd voice-agent
 npm install
 cp .env.example .env    # fill in keys
-npm test                # 23 tests: logic, audio, API end-to-end with an in-memory database
+npm test                # 29 tests: logic, audio, logins and permissions, API end-to-end with an in-memory database
+npm run build           # builds the dashboard
 npm run dev
 ```
 
@@ -96,7 +145,11 @@ your conversation.
 
 ---
 
-## Onboarding a client (API walkthrough)
+## Onboarding a client
+
+The quickest way is the dashboard. Sign in with `PLATFORM_ADMIN_EMAIL`, click **New client** (enter their email
+to give them a login), open the client, then create an agent, get a number and connect integrations. Everything
+below is the same flow through the API, for automation.
 
 All client endpoints take `Authorization: Bearer <client api key>`. You can also use your
 `PLATFORM_ADMIN_KEY` plus an `X-Tenant-Id: <id>` header to manage any client.
@@ -245,7 +298,7 @@ Not legal advice, but these matter when you sell outbound AI calling:
 
 ## Status: what's tested and what isn't
 
-**Tested here** (`npm test`, 23 passing): config validation; slot finding and calling-hours maths; phone
+**Tested here** (`npm test`, 29 passing, plus a scripted browser run through every dashboard page with demo data): config validation; slot finding and calling-hours maths; phone
 normalisation; encryption and signed tokens; HubSpot signature checks; the μ-law codec; WAV decoding; ambience
 generation; the audio pacing, mixing and interruption logic; and the API end-to-end on an in-memory Postgres.
 The end-to-end tests cover:
@@ -253,6 +306,7 @@ The end-to-end tests cover:
 * agents
 * the CRM webhook, including de-duplication
 * the inbound call webhook
+* logins, roles, protection against cross-site requests, and session invalidation
 * a scripted conversation that checks availability, books, updates a CRM field and fires a signed webhook
 * rejection of bad tool input
 * analytics
@@ -267,7 +321,7 @@ selling, do one test call per client setup and listen to the recording.
 
 **Known limits / next steps**
 
-* No dashboard UI yet. Everything is in the REST API, ready for a front end (white-label client portal + your admin view).
+* Branding is one look for the whole platform (yours). Per-client branding, custom domains per client, and email invitations (instead of copying a temporary password) are natural next steps.
 * The dialer and live calls run in one process. That's fine for dozens of simultaneous calls; for more, run several instances (call claiming is atomic) and add sticky routing for transfer-resume.
 * Outlook/Microsoft 365 calendars, Salesforce/Pipedrive native connectors, Stripe billing per minute, A/B testing of prompts and voices, and knowledge-base file uploads are natural additions.
 * Latency is roughly 1 to 1.5 s per reply (speech end detection + model + first audio). `LLM_MODEL=claude-haiku-5-5` is the biggest single speed-up; compare quality on real calls.

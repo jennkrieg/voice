@@ -2,7 +2,7 @@ import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { db, schema } from "./db/index.js";
 
 /** Headline numbers for a dashboard: volume, connection, conversion, transfers, hang-ups, outcomes. */
-export async function callStats(tenantId: string, opts: { from: Date; to: Date; agentId?: string }) {
+export async function callStats(tenantId: string, opts: { from: Date; to: Date; agentId?: string; timezone?: string }) {
   const c = schema.calls;
   const where = and(
     eq(c.tenantId, tenantId),
@@ -36,6 +36,19 @@ export async function callStats(tenantId: string, opts: { from: Date; to: Date; 
     .where(and(where, sql`${c.outcome} is not null`))
     .groupBy(c.outcome)
     .orderBy(sql`count(*) desc`);
+  const tz = opts.timezone ?? "UTC";
+  const day = sql<string>`to_char(date_trunc('day', ${c.createdAt} AT TIME ZONE ${tz}), 'YYYY-MM-DD')`;
+  const daily = await db()
+    .select({
+      day,
+      calls: sql<number>`count(*)::int`,
+      connected: sql<number>`count(*) filter (where ${c.status} = 'completed')::int`,
+      booked: sql<number>`count(*) filter (where ${c.booked})::int`,
+    })
+    .from(c)
+    .where(where)
+    .groupBy(sql`1`)
+    .orderBy(sql`1`);
   const rate = (n: number, d: number) => (d ? Math.round((n / d) * 1000) / 10 : 0);
   return {
     period: { from: opts.from.toISOString(), to: opts.to.toISOString() },
@@ -48,6 +61,7 @@ export async function callStats(tenantId: string, opts: { from: Date; to: Date; 
       successPctOfConnected: rate(totals.successful, totals.connected),
     },
     outcomes,
+    daily,
   };
 }
 

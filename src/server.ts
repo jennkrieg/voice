@@ -7,6 +7,9 @@ import { hooksRouter } from "./api/hooks-routes.js";
 import { tenantRouter } from "./api/tenant-routes.js";
 import { platformRouter } from "./api/platform-routes.js";
 import { oauthRouter } from "./api/oauth-routes.js";
+import { authRouter } from "./api/auth-routes.js";
+import fs from "node:fs";
+import path from "node:path";
 import { handleMediaStream } from "./telephony/call-session.js";
 import { log, errMsg } from "./lib/log.js";
 
@@ -21,10 +24,23 @@ export function createApp() {
   app.use("/hooks", hooksRouter());
   app.use("/oauth", oauthRouter());
   app.use("/platform", platformRouter());
+  app.use("/auth", authRouter());
   app.use("/api", tenantRouter());
+
+  // Dashboard (built with `npm run build`): static files + SPA fallback.
+  const webDist = path.resolve(process.env.WEB_DIST ?? "web/dist");
+  if (fs.existsSync(path.join(webDist, "index.html"))) {
+    app.use(express.static(webDist, { index: false, maxAge: "1h" }));
+    app.get(/^\/(?!api\/|auth\/|platform\/|twilio\/|hooks\/|oauth\/).*/, (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
+      res.sendFile(path.join(webDist, "index.html"));
+    });
+  }
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ZodError) return res.status(400).json({ error: "invalid request", issues: err.issues });
+    const status = (err as { status?: number }).status;
+    if (status && ((status >= 400 && status < 500) || status === 503)) return res.status(status).json({ error: errMsg(err) });
     log.error("request failed", { error: errMsg(err) });
     res.status(500).json({ error: errMsg(err) });
   });

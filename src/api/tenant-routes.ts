@@ -7,7 +7,9 @@ import { env, requireEnv } from "../env.js";
 import { db, schema } from "../db/index.js";
 import { encryptJson, newId, newSecret, signToken, decryptJson } from "../lib/crypto.js";
 import { toE164 } from "../lib/phone.js";
-import { requireTenant, h } from "./auth.js";
+import { requireTenant, requireOwner, h } from "./auth.js";
+import { createUser, publicUser } from "../users.js";
+import { sha256Hex } from "../lib/crypto.js";
 import { AgentConfig, parseAgentConfig } from "../agents/config.js";
 import { getIntegration, calendarFromRow, crmFromRow } from "../integrations/registry.js";
 import { GOOGLE_SCOPES, googleOAuthClient } from "../integrations/calendar/google.js";
@@ -69,6 +71,52 @@ export function tenantRouter() {
           secret: t.webhookSecret,
         },
       });
+    }),
+  );
+
+  r.patch(
+    "/tenant",
+    requireOwner,
+    h(async (req, res) => {
+      const body = z.object({ name: z.string().min(1).optional(), timezone: z.string().optional() }).parse(req.body);
+      const [t] = await db().update(schema.tenants).set(body).where(eq(schema.tenants.id, req.tenant!.id)).returning();
+      res.json({ id: t.id, name: t.name, timezone: t.timezone });
+    }),
+  );
+  r.post(
+    "/tenant/rotate-key",
+    requireOwner,
+    h(async (req, res) => {
+      const apiKey = newSecret("vk_live_", 32);
+      await db().update(schema.tenants).set({ apiKeyHash: sha256Hex(apiKey) }).where(eq(schema.tenants.id, req.tenant!.id));
+      res.json({ apiKey, note: "The old key stops working now. Shown once." });
+    }),
+  );
+
+  // ---------- team ----------
+  r.get(
+    "/users",
+    h(async (req, res) => {
+      const rows = await db().select().from(schema.users).where(eq(schema.users.tenantId, req.tenant!.id));
+      res.json({ users: rows.map(publicUser) });
+    }),
+  );
+  r.post(
+    "/users",
+    requireOwner,
+    h(async (req, res) => {
+      const body = z.object({ email: z.string().email(), name: z.string().optional(), role: z.enum(["owner", "member"]).default("member") }).parse(req.body);
+      const { user, temporaryPassword } = await createUser({ ...body, tenantId: req.tenant!.id });
+      res.status(201).json({ user: publicUser(user), temporaryPassword });
+    }),
+  );
+  r.delete(
+    "/users/:id",
+    requireOwner,
+    h(async (req, res) => {
+      if (req.user?.id === req.params.id) return res.status(400).json({ error: "You can't remove yourself" });
+      await db().delete(schema.users).where(and(eq(schema.users.id, req.params.id as string), eq(schema.users.tenantId, req.tenant!.id)));
+      res.sendStatus(204);
     }),
   );
 
@@ -334,6 +382,7 @@ export function tenantRouter() {
   );
   r.delete(
     "/integrations/:id",
+    requireOwner,
     h(async (req, res) => {
       await db().delete(schema.integrations).where(and(eq(schema.integrations.id, req.params.id as string), eq(schema.integrations.tenantId, req.tenant!.id)));
       res.sendStatus(204);
@@ -426,11 +475,13 @@ export function tenantRouter() {
           durationSeconds: c.durationSeconds,
           summary: c.summary,
           reviewScore: sql<number | null>`(${c.review}->>'score')::int`,
+          contactName: sql<string | null>`nullif(trim(concat_ws(' ', ${schema.contacts.firstName}, ${schema.contacts.lastName})), '')`,
           hasRecording: sql<boolean>`${c.recordingUrl} is not null`,
           scheduledFor: c.scheduledFor,
           createdAt: c.createdAt,
         })
         .from(c)
+        .leftJoin(schema.contacts, eq(schema.contacts.id, c.contactId))
         .where(
           and(
             eq(c.tenantId, req.tenant!.id),
@@ -455,8 +506,9 @@ export function tenantRouter() {
         db().select().from(schema.callEvents).where(eq(schema.callEvents.callId, call.id)).orderBy(schema.callEvents.at),
         db().select().from(schema.messages).where(eq(schema.messages.callId, call.id)).orderBy(schema.messages.createdAt),
       ]);
+      const contact = call.contactId ? await getContact(req.tenant!.id, call.contactId) : null;
       const { recordingUrl, ...rest } = call;
-      res.json({ ...rest, recording: recordingUrl ? `/api/calls/${call.id}/recording` : null, events, followUps: msgs });
+      res.json({ ...rest, recording: recordingUrl ? `/api/calls/${call.id}/recording` : null, contact, events, followUps: msgs });
     }),
   );
   /** Streams the recording (Twilio recordings need your account credentials to download). */
@@ -488,7 +540,7 @@ export function tenantRouter() {
   r.get(
     "/analytics",
     h(async (req, res) => {
-      res.json(await callStats(req.tenant!.id, { ...range(req.query), agentId: req.query.agentId ? String(req.query.agentId) : undefined }));
+      res.json(await callStats(req.tenant!.id, { ...range(req.query), agentId: req.query.agentId ? String(req.query.agentId) : undefined, timezone: req.tenant!.timezone }));
     }),
   );
   r.get(

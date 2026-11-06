@@ -8,6 +8,18 @@ export const MIGRATIONS: string[] = [
     webhook_secret text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
   )`,
+  `CREATE TABLE IF NOT EXISTS users (
+    id text PRIMARY KEY,
+    tenant_id text REFERENCES tenants(id) ON DELETE CASCADE,
+    email text NOT NULL,
+    name text,
+    password_hash text NOT NULL,
+    role text NOT NULL,
+    session_version integer NOT NULL DEFAULT 1,
+    last_login_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON users(email)`,
   `CREATE TABLE IF NOT EXISTS agents (
     id text PRIMARY KEY,
     tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

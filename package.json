@@ -8,8 +8,11 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "chat": "tsx src/chat.ts",
-    "check": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "check": "tsc --noEmit && tsc --noEmit -p web",
+    "test": "node --import tsx --test test/*.test.ts",
+    "web": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "demo": "tsx src/demo.ts"
   },
   "engines": {
     "node": ">=20"
@@ -24,19 +27,30 @@
     "luxon": "^3.7.2",
     "nodemailer": "^10.3.1",
     "pg": "^8.23.1",
+    "tsx": "^4.23.15",
     "twilio": "^6.2.0",
     "ws": "^8.22.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.4",
+    "@tanstack/react-query": "^5.106.1",
     "@types/express": "^5.0.6",
     "@types/luxon": "^3.7.6",
     "@types/node": "^22.20.5",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.2.1",
     "drizzle-kit": "^0.31.11",
-    "tsx": "^4.23.15",
-    "typescript": "5.9"
+    "lucide-react": "^1.69.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6",
+    "tailwindcss": "^4.3.4",
+    "typescript": "5.9",
+    "vite": "^8.3.6"
   }
 }

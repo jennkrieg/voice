@@ -38,6 +38,16 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 
   DIALER_ENABLED: bool(true),
+
+  /** First dashboard login for you (created on boot if it doesn't exist). */
+  PLATFORM_ADMIN_EMAIL: z.string().email().optional(),
+  PLATFORM_ADMIN_PASSWORD: z.string().min(10).optional(),
+
+  /** White-label branding shown to your clients in the dashboard. */
+  BRAND_NAME: z.string().default("Voice Agents"),
+  BRAND_LOGO_URL: z.string().optional(),
+  BRAND_PRIMARY_COLOR: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#4f46e5"),
+  BRAND_SUPPORT_EMAIL: z.string().optional(),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -46,7 +56,8 @@ export type Env = typeof env;
 export function requireEnv<K extends keyof Env>(key: K): NonNullable<Env[K]> {
   const v = env[key];
   if (v === undefined || v === null || v === "") {
-    throw new Error(`Missing required environment variable ${String(key)}`);
+    // 503 so the API reports "not configured yet" instead of a crash.
+    throw Object.assign(new Error(`This feature isn't set up yet: ${String(key)} is missing on the server.`), { status: 503 });
   }
   return v as NonNullable<Env[K]>;
 }

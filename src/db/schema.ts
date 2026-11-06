@@ -11,6 +11,26 @@ export const tenants = pgTable("tenants", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export type UserRole = "platform_admin" | "owner" | "member";
+
+/** People who log in to the dashboard. Platform admins (you) have no tenant. */
+export const users = pgTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    passwordHash: text("password_hash").notNull(),
+    role: text("role").$type<UserRole>().notNull(),
+    /** Bumped on password change / "log out everywhere" to invalidate old sessions. */
+    sessionVersion: integer("session_version").notNull().default(1),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("users_email_idx").on(t.email)],
+);
+
 export const agents = pgTable(
   "agents",
   {
@@ -188,6 +208,7 @@ export const insightReports = pgTable(
 );
 
 export type Tenant = typeof tenants.$inferSelect;
+export type User = typeof users.$inferSelect;
 export type AgentRow = typeof agents.$inferSelect;
 export type PhoneNumberRow = typeof phoneNumbers.$inferSelect;
 export type IntegrationRow = typeof integrations.$inferSelect;
