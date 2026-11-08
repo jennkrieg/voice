@@ -7,9 +7,17 @@ const bool = (def: boolean) =>
     .optional()
     .transform((v) => (v === undefined || v === "" ? def : v === "true" || v === "1"));
 
+// Render sets optional variables left blank to "" — treat those as unset so defaults apply.
+for (const [k, v] of Object.entries(process.env)) if (v === "") delete process.env[k];
+
 const EnvSchema = z.object({
   PORT: z.coerce.number().default(8080),
-  PUBLIC_BASE_URL: z.string().url().default("http://localhost:8080"),
+  /** On Render this defaults to the service's own address (RENDER_EXTERNAL_URL). */
+  PUBLIC_BASE_URL: z
+    .string()
+    .url()
+    .default(process.env.RENDER_EXTERNAL_URL || "http://localhost:8080")
+    .transform((u) => u.replace(/\/+$/, "")),
   /** Master key for the platform owner (you). Creates tenants (your clients). */
   PLATFORM_ADMIN_KEY: z.string().min(16).optional(),
   /** 32-byte key (hex or base64) used to encrypt each client's integration secrets at rest. */

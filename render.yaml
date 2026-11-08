@@ -1,0 +1,79 @@
+# Render Blueprint: one click creates the app and its database.
+# Dashboard → New → Blueprint → pick this repo. See README "Deploy on Render".
+services:
+  - type: web
+    name: voice
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Always-on plan. The free plan sleeps when idle, so incoming calls would fail.
+    plan: 0.5c-512mb
+    # Close to the speech, voice and AI providers' US-East servers (lowest call latency).
+    region: virginia
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voice-db
+          property: connectionString
+      # Generated once by Render and kept secret.
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: PLATFORM_ADMIN_KEY
+        generateValue: true
+
+      # ---- You're asked for these when you create the Blueprint ----
+      # Your dashboard login (created on first start)
+      - key: PLATFORM_ADMIN_EMAIL
+        sync: false
+      - key: PLATFORM_ADMIN_PASSWORD
+        sync: false
+      # What your clients see
+      - key: BRAND_NAME
+        sync: false
+      - key: BRAND_PRIMARY_COLOR
+        sync: false
+      - key: BRAND_LOGO_URL
+        sync: false
+      - key: BRAND_SUPPORT_EMAIL
+        sync: false
+      # Services (leave blank to start; add them later under Environment)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # ---- Defaults (change any time) ----
+      - key: LLM_MODEL
+        value: claude-opus-5-5
+      - key: LLM_EFFORT
+        value: low
+      - key: TWILIO_VALIDATE_SIGNATURE
+        value: "true"
+      - key: TWILIO_MACHINE_DETECTION
+        value: "true"
+      - key: DIALER_ENABLED
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      # PUBLIC_BASE_URL defaults to Render's address (RENDER_EXTERNAL_URL).
+      # Set it only if you add your own domain, e.g. https://voice.youragency.com
+
+databases:
+  - name: voice-db
+    databaseName: voice
+    user: voice
+    region: virginia
+    plan: 0.1c-256mb
+    # Only the app (inside Render's private network) can connect.
+    ipAllowList: []
