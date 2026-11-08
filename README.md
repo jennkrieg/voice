@@ -109,7 +109,8 @@ Each client brings their own Cal.com API key, HubSpot private app token, GoHighL
 ## Run it
 
 ```bash
-cd voice-agent
+git clone https://github.com/jennkrieg/voice.git
+cd voice
 npm install
 cp .env.example .env    # fill in keys
 npm test                # 38 tests: logic, audio, logins and permissions, API end-to-end with an in-memory database
